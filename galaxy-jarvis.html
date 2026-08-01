@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ARIA // Galaxy Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05050d;
+    --violet:#8b5cf6;
+    --violet-dim:#4c2f8a;
+    --cyan:#45e8ff;
+    --magenta:#ff3ec8;
+    --ink:#eae6ff;
+    --ink-dim:#9089b8;
+    --glass:rgba(18,14,36,0.6);
+    --glass-strong:rgba(14,10,28,0.86);
+    --line:rgba(139,92,246,0.28);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--bg); color:var(--ink);
+    font-family:'Space Grotesk', system-ui, sans-serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #canvas-wrap{position:fixed; inset:0; touch-action:none;}
+  canvas{display:block; width:100%; height:100%;}
+
+  .eyebrow{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--ink-dim);
+  }
+
+  /* ---------- status readout ---------- */
+  #status{
+    position:fixed; top:calc(14px + env(safe-area-inset-top)); left:16px;
+    z-index:5; pointer-events:none;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-dim);
+    display:flex; align-items:center; gap:8px;
+  }
+  #status .dot{
+    width:7px; height:7px; border-radius:50%;
+    background:var(--violet); box-shadow:0 0 8px var(--violet);
+    transition:background .4s, box-shadow .4s;
+  }
+  #status .dot.listening{background:var(--magenta); box-shadow:0 0 10px var(--magenta);}
+  #status .dot.thinking{background:var(--cyan); box-shadow:0 0 10px var(--cyan);}
+  #status .dot.speaking{background:var(--cyan); box-shadow:0 0 12px var(--cyan);}
+  #status .label{color:var(--ink);}
+
+  /* ---------- settings toggle ---------- */
+  #settings-btn{
+    position:fixed; top:calc(10px + env(safe-area-inset-top)); right:12px; z-index:6;
+    width:38px; height:38px; border-radius:50%;
+    background:var(--glass); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--ink-dim); font-size:16px; cursor:pointer;
+    backdrop-filter:blur(10px);
+  }
+  #settings-panel{
+    position:fixed; top:calc(56px + env(safe-area-inset-top)); right:12px; z-index:6;
+    width:220px; padding:14px; border-radius:14px;
+    background:var(--glass-strong); border:1px solid var(--line);
+    backdrop-filter:blur(14px);
+    display:none; flex-direction:column; gap:10px;
+  }
+  #settings-panel.open{display:flex;}
+  #settings-panel label{font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-dim);}
+  #voice-select{
+    width:100%; background:rgba(255,255,255,0.05); color:var(--ink);
+    border:1px solid var(--line); border-radius:8px; padding:7px 8px;
+    font-family:'Space Grotesk',sans-serif; font-size:12.5px;
+  }
+  #settings-note{font-size:10.5px; color:var(--ink-dim); line-height:1.5;}
+
+  /* ---------- planet labels ---------- */
+  .planet-label{
+    position:fixed; z-index:3; transform:translate(-50%,-50%);
+    font-family:'Orbitron', sans-serif; font-weight:700;
+    font-size:10px; letter-spacing:.16em;
+    color:var(--ink); text-shadow:0 0 8px rgba(139,92,246,.9), 0 0 2px #000;
+    pointer-events:none; white-space:nowrap;
+    transition:opacity .2s;
+  }
+
+  /* ---------- AI core hint ---------- */
+  #core-hint{
+    position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
+    z-index:4; font-family:'JetBrains Mono',monospace; font-size:9.5px;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--ink-dim);
+    pointer-events:none; opacity:.75; text-align:center;
+  }
+
+  /* ---------- fact card (planet tap) ---------- */
+  #fact-card{
+    position:fixed; left:50%; top:calc(48px + env(safe-area-inset-top));
+    transform:translateX(-50%) translateY(-10px);
+    z-index:5; width:min(320px, 84vw); padding:12px 16px;
+    background:var(--glass-strong); border:1px solid var(--line);
+    border-radius:14px; backdrop-filter:blur(14px);
+    opacity:0; pointer-events:none;
+    transition:opacity .35s, transform .35s;
+  }
+  #fact-card.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  #fact-card .name{
+    font-family:'Orbitron',sans-serif; font-weight:800; font-size:13px;
+    letter-spacing:.14em; color:var(--cyan); margin-bottom:4px;
+  }
+  #fact-card .fact{font-size:12.5px; line-height:1.5; color:var(--ink);}
+
+  /* ---------- chat launcher (the core echo, bottom right) ---------- */
+  #chat-launcher{
+    position:fixed; right:16px; bottom:calc(16px + env(safe-area-inset-bottom));
+    z-index:6; width:56px; height:56px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, var(--cyan), var(--violet) 60%, var(--violet-dim) 100%);
+    box-shadow:0 0 22px rgba(139,92,246,.65), 0 0 6px rgba(69,232,255,.5) inset;
+    border:none; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #chat-launcher svg{width:24px; height:24px;}
+  #chat-launcher.hidden{display:none;}
+
+  /* ---------- chat console ---------- */
+  #console{
+    position:fixed; left:0; right:0; bottom:0; z-index:7;
+    display:flex; flex-direction:column;
+    max-height:72vh; transform:translateY(100%);
+    transition:transform .38s cubic-bezier(.2,.8,.25,1);
+    background:linear-gradient(180deg, rgba(10,8,22,0.2), var(--glass-strong) 22%);
+    border-top:1px solid var(--line);
+    backdrop-filter:blur(18px);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #console.open{transform:translateY(0);}
+  #console-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px 8px;
+  }
+  #console-header .title{
+    font-family:'Orbitron',sans-serif; font-weight:800; font-size:13px;
+    letter-spacing:.18em; color:var(--ink);
+  }
+  #console-close{
+    width:28px; height:28px; border-radius:50%; border:1px solid var(--line);
+    background:rgba(255,255,255,0.04); color:var(--ink-dim);
+    font-size:14px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  #messages{
+    flex:1; overflow-y:auto; padding:4px 16px 10px;
+    display:flex; flex-direction:column; gap:10px;
+    min-height:120px;
+  }
+  .msg{max-width:82%; padding:9px 13px; border-radius:14px; font-size:13.5px; line-height:1.5;}
+  .msg.user{
+    align-self:flex-end; background:rgba(69,232,255,.1);
+    border:1px solid rgba(69,232,255,.35); border-bottom-right-radius:4px;
+  }
+  .msg.assistant{
+    align-self:flex-start; background:rgba(139,92,246,.12);
+    border:1px solid rgba(139,92,246,.35); border-bottom-left-radius:4px;
+  }
+  .msg.error{
+    align-self:center; background:rgba(255,80,80,.1);
+    border:1px solid rgba(255,80,80,.4); color:#ffb0b0; font-size:12px;
+  }
+  #input-row{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 12px; border-top:1px solid var(--line);
+  }
+  #text-input{
+    flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--line);
+    border-radius:20px; padding:10px 16px; color:var(--ink);
+    font-family:'Space Grotesk',sans-serif; font-size:14px; outline:none;
+  }
+  #text-input::placeholder{color:var(--ink-dim);}
+  .icon-btn{
+    width:40px; height:40px; min-width:40px; border-radius:50%; border:1px solid var(--line);
+    background:rgba(255,255,255,0.04); color:var(--ink);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .icon-btn svg{width:18px; height:18px;}
+  #mic-btn.active{
+    background:radial-gradient(circle, var(--magenta), #7a1360);
+    box-shadow:0 0 14px rgba(255,62,200,.7); border-color:transparent;
+  }
+  #send-btn{
+    background:radial-gradient(circle, var(--cyan), var(--violet));
+    border-color:transparent;
+  }
+  #mic-unsupported{display:none;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.01ms !important; transition-duration:.01ms !important;}
+  }
+
+  #boot-status{
+    position:fixed; inset:0; z-index:20; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px;
+    background:radial-gradient(circle at 50% 40%, #14103a, #05050d 70%);
+    font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-dim); text-align:center; padding:0 30px;
+  }
+  #boot-status .spinner{
+    width:34px; height:34px; border-radius:50%;
+    border:2px solid rgba(139,92,246,.25); border-top-color:var(--violet);
+    animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  #webgl-fallback{
+    position:fixed; inset:0; z-index:19; display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    background:radial-gradient(circle at 50% 35%, #14103a, #05050d 70%);
+    text-align:center; padding:0 32px;
+  }
+  #webgl-fallback.show{display:flex;}
+  #webgl-fallback .core-dot{
+    width:64px; height:64px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, var(--cyan), var(--violet) 60%, var(--violet-dim) 100%);
+    box-shadow:0 0 26px rgba(139,92,246,.6);
+    animation:pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{transform:scale(1);} 50%{transform:scale(1.1);} }
+  #webgl-fallback h2{
+    font-family:'Orbitron',sans-serif; font-size:14px; letter-spacing:.16em; margin:0; color:var(--ink);
+  }
+  #webgl-fallback p{ font-size:13px; color:var(--ink-dim); line-height:1.6; max-width:320px; margin:0; }
+  #webgl-fallback button{
+    margin-top:6px; padding:12px 22px; border-radius:24px; border:none;
+    background:radial-gradient(circle, var(--cyan), var(--violet));
+    color:#0a0714; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-wrap"></div>
+
+<div id="boot-status">
+  <div class="spinner"></div>
+  <div id="boot-text">booting galaxy…</div>
+</div>
+
+<div id="webgl-fallback">
+  <div class="core-dot"></div>
+  <h2>ARIA</h2>
+  <p id="fallback-msg">The 3D galaxy can't render in this browser, but you can still talk to me.</p>
+  <button id="fallback-talk-btn">Talk to ARIA</button>
+</div>
+
+<div id="status">
+  <div class="dot" id="status-dot"></div>
+  <span class="label" id="status-label">ARIA // STANDBY</span>
+</div>
+
+<button id="settings-btn" aria-label="Voice settings">⚙</button>
+<div id="settings-panel">
+  <label for="voice-select">Voice</label>
+  <select id="voice-select"></select>
+  <div id="settings-note">Drag to orbit · pinch or scroll to zoom · tap a planet for a fact · tap the core to talk.</div>
+  <div id="mic-unsupported" class="settings-note" style="font-size:10.5px;color:var(--ink-dim);">Voice input isn't supported in this browser — typing still works.</div>
+</div>
+
+<div id="fact-card">
+  <div class="name" id="fact-name"></div>
+  <div class="fact" id="fact-text"></div>
+</div>
+
+<div id="core-hint">tap the glowing core to talk to ARIA</div>
+
+<button id="chat-launcher" aria-label="Open ARIA console">
+  <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.6"><path d="M12 3a4 4 0 0 1 4 4v4a4 4 0 0 1-8 0V7a4 4 0 0 1 4-4Z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
+</button>
+
+<div id="console">
+  <div id="console-header">
+    <span class="title">ARIA</span>
+    <button id="console-close" aria-label="Close">✕</button>
+  </div>
+  <div id="messages"></div>
+  <div id="input-row">
+    <button class="icon-btn" id="mic-btn" aria-label="Voice input">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
+    </button>
+    <input id="text-input" type="text" placeholder="Say something to ARIA…" autocomplete="off">
+    <button class="icon-btn" id="send-btn" aria-label="Send">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><path d="M4 12h16M14 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var bootStatus = document.getElementById('boot-status');
+  var bootText = document.getElementById('boot-text');
+  var fallbackPanel = document.getElementById('webgl-fallback');
+
+  function hideBoot(){ bootStatus.style.display = 'none'; }
+  function handleSceneFailure(err){
+    if (err) console.error('Galaxy scene failed:', err);
+    hideBoot();
+    document.getElementById('canvas-wrap').style.display = 'none';
+    fallbackPanel.classList.add('show');
+  }
+
+  // Safety net: if nothing has resolved the boot screen within 9s (e.g. the
+  // 3D library never finished loading over a slow/blocked connection), fail
+  // over to the chat-only fallback instead of staying black forever.
+  var bootTimer = setTimeout(function(){ handleSceneFailure(new Error('boot timeout')); }, 9000);
+  var slowNoticeTimer = setTimeout(function(){
+    if (bootStatus.style.display !== 'none') bootText.textContent = 'still loading… hang tight';
+  }, 4000);
+
+  document.getElementById('fallback-talk-btn').addEventListener('click', function(){
+    toggleConsole(true);
+  });
+
+  /* ============ AI STATE (DOM-only, safe even if the 3D scene fails) ============ */
+  var aiState = 'idle';
+  function setState(s){
+    aiState = s;
+    var statusLabel = document.getElementById('status-label');
+    var dot = document.getElementById('status-dot');
+    dot.className = 'dot' + (s !== 'idle' ? ' '+s : '');
+    var map = {idle:'STANDBY', listening:'LISTENING', thinking:'THINKING', speaking:'SPEAKING'};
+    statusLabel.textContent = 'ARIA // ' + map[s];
+  }
+
+  /* ============ THREE.JS SCENE ============ */
+  try{
+  var wrap = document.getElementById('canvas-wrap');
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 500);
+  var renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  wrap.appendChild(renderer.domElement);
+
+  scene.fog = new THREE.FogExp2(0x05050d, 0.012);
+
+  // ---- glow texture (procedural, no external image) ----
+  function glowTexture(){
+    var c = document.createElement('canvas'); c.width = c.height = 128;
+    var ctx = c.getContext('2d');
+    var g = ctx.createRadialGradient(64,64,0,64,64,64);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,128,128);
+    return new THREE.CanvasTexture(c);
+  }
+  var GLOW_TEX = glowTexture();
+
+  // ---- starfield ----
+  (function buildStars(){
+    var counts = [ [3200, 0.55, 0x9d8fff], [1800, 0.9, 0x6ee7ff], [900, 1.3, 0xffffff] ];
+    counts.forEach(function(cfg){
+      var n = cfg[0], size = cfg[1], color = cfg[2];
+      var geo = new THREE.BufferGeometry();
+      var pos = new Float32Array(n*3);
+      for (var i=0;i<n;i++){
+        var r = 60 + Math.random()*220;
+        var theta = Math.random()*Math.PI*2;
+        var phi = Math.acos((Math.random()*2)-1);
+        pos[i*3]   = r*Math.sin(phi)*Math.cos(theta);
+        pos[i*3+1] = r*Math.cos(phi)*0.6;
+        pos[i*3+2] = r*Math.sin(phi)*Math.sin(theta);
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      var mat = new THREE.PointsMaterial({size:size, color:color, map:GLOW_TEX, transparent:true, opacity:0.85, depthWrite:false, blending:THREE.AdditiveBlending});
+      scene.add(new THREE.Points(geo, mat));
+    });
+  })();
+
+  // ---- AI core (the "sun" / Jarvis presence) ----
+  var coreGroup = new THREE.Group();
+  var coreMesh = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(1.5, 3),
+    new THREE.MeshPhongMaterial({color:0x2a1a55, emissive:0x8b5cf6, emissiveIntensity:0.9, shininess:40, flatShading:true})
+  );
+  coreGroup.add(coreMesh);
+  var coreWire = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(1.62, 1),
+    new THREE.MeshBasicMaterial({color:0x45e8ff, wireframe:true, transparent:true, opacity:0.35})
+  );
+  coreGroup.add(coreWire);
+  var coreHalo = new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW_TEX, color:0x8b5cf6, transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false}));
+  coreHalo.scale.set(9,9,1);
+  coreGroup.add(coreHalo);
+  scene.add(coreGroup);
+
+  var coreLight = new THREE.PointLight(0x9d8fff, 2.4, 60);
+  scene.add(coreLight);
+  scene.add(new THREE.AmbientLight(0x2a2450, 1.1));
+
+  // ---- planets ----
+  var PLANETS = [
+    {name:'MERCURY', color:0x9a8f86, size:0.34, dist:4.6,  speed:0.9,  fact:"Mercury is the smallest planet and the closest to the sun. Its year lasts only eighty eight Earth days."},
+    {name:'VENUS',   color:0xe0b568, size:0.52, dist:6.3,  speed:0.72, fact:"Venus spins backwards compared to most planets, and its thick atmosphere makes it the hottest planet in the solar system."},
+    {name:'EARTH',   color:0x3f8ee0, size:0.58, dist:8.1,  speed:0.55, fact:"Earth is the only known planet with liquid oceans on its surface, and the only one confirmed to host life."},
+    {name:'MARS',    color:0xc1552c, size:0.44, dist:10.1, speed:0.44, fact:"Mars is home to Olympus Mons, the tallest volcano in the solar system, nearly three times the height of Mount Everest."},
+    {name:'JUPITER', color:0xd8a86b, size:1.35, dist:13.6, speed:0.26, fact:"Jupiter's Great Red Spot is a storm larger than Earth that has been raging for at least a few hundred years."},
+    {name:'SATURN',  color:0xe8d3a0, size:1.15, dist:17.6, speed:0.19, ring:true, fact:"Saturn's rings are made of countless chunks of ice and rock, some as small as dust and others as large as houses."},
+    {name:'URANUS',  color:0x8fd9e0, size:0.86, dist:21.1, speed:0.13, fact:"Uranus rotates almost completely on its side, likely the result of a massive collision billions of years ago."},
+    {name:'NEPTUNE', color:0x4d6fe0, size:0.82, dist:24.1, speed:0.10, fact:"Neptune has the fastest winds ever recorded in the solar system, gusting over one thousand two hundred miles per hour."}
+  ];
+
+  var planetMeshes = [];
+  var labelEls = {};
+  var labelsContainer = document.body;
+
+  PLANETS.forEach(function(p){
+    var orbitCurve = new THREE.EllipseCurve(0,0, p.dist, p.dist, 0, Math.PI*2, false, 0);
+    var pts = orbitCurve.getPoints(96);
+    var ringGeo = new THREE.BufferGeometry().setFromPoints(pts.map(function(pt){return new THREE.Vector3(pt.x,0,pt.y);}));
+    var ringMat = new THREE.LineBasicMaterial({color:p.color, transparent:true, opacity:0.18});
+    scene.add(new THREE.LineLoop(ringGeo, ringMat));
+
+    var geo = new THREE.SphereGeometry(p.size, 32, 32);
+    var mat = new THREE.MeshPhongMaterial({color:p.color, emissive:p.color, emissiveIntensity:0.18, shininess:12});
+    var mesh = new THREE.Mesh(geo, mat);
+    mesh.userData = p;
+    scene.add(mesh);
+
+    if (p.ring){
+      var sr = new THREE.Mesh(
+        new THREE.RingGeometry(p.size*1.4, p.size*2.3, 48),
+        new THREE.MeshBasicMaterial({color:0xdccfa0, side:THREE.DoubleSide, transparent:true, opacity:0.55})
+      );
+      sr.rotation.x = Math.PI/2.4;
+      mesh.add(sr);
+    }
+
+    var angle = Math.random()*Math.PI*2;
+    mesh.userData._angle = angle;
+    planetMeshes.push(mesh);
+
+    var label = document.createElement('div');
+    label.className = 'planet-label';
+    label.textContent = p.name;
+    labelsContainer.appendChild(label);
+    labelEls[p.name] = label;
+  });
+
+  /* ============ CAMERA CONTROLS ============ */
+  var cam = { radius:34, theta:0.9, phi:1.15, radiusGoal:34 };
+  var focusTarget = new THREE.Vector3(0,0,0);
+  var focusGoal = new THREE.Vector3(0,0,0);
+  var focusedPlanet = null;
+
+  var MIN_R = 2.2, MAX_R = 90;
+
+  function applyCamera(){
+    var p = cam.phi;
+    var x = cam.radius * Math.sin(p) * Math.cos(cam.theta);
+    var z = cam.radius * Math.sin(p) * Math.sin(cam.theta);
+    var y = cam.radius * Math.cos(p);
+    camera.position.set(focusTarget.x + x, focusTarget.y + y, focusTarget.z + z);
+    camera.lookAt(focusTarget);
+  }
+
+  var pointers = {};
+  var dragMoved = 0;
+  var lastPinchDist = null;
+
+  function pointerPos(e){ return {x:e.clientX, y:e.clientY}; }
+
+  wrap.addEventListener('pointerdown', function(e){
+    wrap.setPointerCapture(e.pointerId);
+    pointers[e.pointerId] = pointerPos(e);
+    dragMoved = 0;
+  });
+
+  wrap.addEventListener('pointermove', function(e){
+    if (!pointers[e.pointerId]) return;
+    var ids = Object.keys(pointers);
+    var prev = pointers[e.pointerId];
+    var cur = pointerPos(e);
+
+    if (ids.length === 2){
+      var otherId = ids.filter(function(id){return id != e.pointerId;})[0];
+      var other = pointers[otherId];
+      var dx = cur.x - other.x, dy = cur.y - other.y;
+      var dist = Math.sqrt(dx*dx+dy*dy);
+      if (lastPinchDist != null){
+        var delta = dist - lastPinchDist;
+        cam.radiusGoal = clamp(cam.radiusGoal - delta*0.05, MIN_R, MAX_R);
+      }
+      lastPinchDist = dist;
+    } else {
+      var dx2 = cur.x - prev.x, dy2 = cur.y - prev.y;
+      dragMoved += Math.abs(dx2)+Math.abs(dy2);
+      cam.theta -= dx2*0.0055;
+      cam.phi = clamp(cam.phi - dy2*0.0055, 0.2, Math.PI-0.2);
+    }
+    pointers[e.pointerId] = cur;
+  });
+
+  function endPointer(e){
+    if (Object.keys(pointers).length < 2) lastPinchDist = null;
+    delete pointers[e.pointerId];
+    if (dragMoved < 6){
+      handleTap(e.clientX, e.clientY);
+    }
+  }
+  wrap.addEventListener('pointerup', endPointer);
+  wrap.addEventListener('pointercancel', endPointer);
+
+  wrap.addEventListener('wheel', function(e){
+    e.preventDefault();
+    cam.radiusGoal = clamp(cam.radiusGoal + e.deltaY*0.02, MIN_R, MAX_R);
+  }, {passive:false});
+
+  function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+
+  var raycaster = new THREE.Raycaster();
+  function handleTap(clientX, clientY){
+    var nx = (clientX/window.innerWidth)*2-1;
+    var ny = -(clientY/window.innerHeight)*2+1;
+    raycaster.setFromCamera({x:nx,y:ny}, camera);
+
+    var coreHit = raycaster.intersectObject(coreMesh)[0];
+    if (coreHit){ toggleConsole(true); return; }
+
+    var hits = raycaster.intersectObjects(planetMeshes);
+    if (hits.length){
+      selectPlanet(hits[0].object);
+    } else {
+      deselectPlanet();
+    }
+  }
+
+  function selectPlanet(mesh){
+    focusedPlanet = mesh;
+    cam.radiusGoal = clamp(mesh.userData.size*5 + 2.6, MIN_R, MAX_R);
+    showFact(mesh.userData);
+    speak(mesh.userData.fact);
+  }
+  function deselectPlanet(){
+    focusedPlanet = null;
+    cam.radiusGoal = 34;
+    hideFact();
+  }
+
+  /* ============ FACT CARD ============ */
+  var factCard = document.getElementById('fact-card');
+  var factName = document.getElementById('fact-name');
+  var factText = document.getElementById('fact-text');
+  function showFact(p){
+    factName.textContent = p.name;
+    factText.textContent = p.fact;
+    factCard.classList.add('show');
+  }
+  function hideFact(){ factCard.classList.remove('show'); }
+
+  /* ============ CORE VISUAL (color/pulse driven by aiState) ============ */
+  var STATE_COLOR = {
+    idle:     new THREE.Color(0x8b5cf6),
+    listening:new THREE.Color(0xff3ec8),
+    thinking: new THREE.Color(0x45e8ff),
+    speaking: new THREE.Color(0x45e8ff)
+  };
+  var STATE_FREQ = { idle:0.6, listening:3.2, thinking:4.5, speaking:2.2 };
+  var _curColor = STATE_COLOR.idle.clone();
+
+  function updateCoreVisual(t){
+    var target = STATE_COLOR[aiState];
+    _curColor.lerp(target, 0.05);
+    var freq = STATE_FREQ[aiState];
+    var pulse = 0.75 + Math.sin(t*freq)*0.25;
+    coreMesh.material.emissive.copy(_curColor);
+    coreMesh.material.emissiveIntensity = 0.6 + pulse*0.7;
+    coreWire.material.color.copy(_curColor);
+    coreHalo.material.color.copy(_curColor);
+    var scale = 9 + pulse*2.2;
+    coreHalo.scale.set(scale,scale,1);
+    coreLight.color.copy(_curColor);
+    coreLight.intensity = 1.8 + pulse*1.4;
+  }
+
+  /* ============ RENDER LOOP ============ */
+  var clock = new THREE.Clock();
+  var motionScale = reducedMotion ? 0.25 : 1;
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var dt = Math.min(clock.getDelta(), 0.05);
+    var t = clock.elapsedTime;
+
+    planetMeshes.forEach(function(mesh){
+      var p = mesh.userData;
+      p._angle += p.speed*0.12*dt*motionScale;
+      mesh.position.set(Math.cos(p._angle)*p.dist, 0, Math.sin(p._angle)*p.dist);
+      mesh.rotation.y += 0.3*dt;
+    });
+
+    if (focusedPlanet) focusGoal.copy(focusedPlanet.position);
+    else focusGoal.set(0,0,0);
+    focusTarget.lerp(focusGoal, 0.06);
+    cam.radius += (cam.radiusGoal - cam.radius)*0.08;
+    applyCamera();
+
+    coreGroup.rotation.y += 0.08*dt*motionScale;
+    coreWire.rotation.x -= 0.05*dt*motionScale;
+    updateCoreVisual(t);
+
+    updateLabels();
+
+    renderer.render(scene, camera);
+  }
+
+  function updateLabels(){
+    planetMeshes.forEach(function(mesh){
+      var p = mesh.userData;
+      var v = mesh.position.clone().project(camera);
+      var el = labelEls[p.name];
+      if (v.z > 1){ el.style.opacity = 0; return; }
+      var x = (v.x*0.5+0.5)*window.innerWidth;
+      var y = (-v.y*0.5+0.5)*window.innerHeight;
+      el.style.left = x+'px';
+      el.style.top = (y - p.size*40 - 14)+'px';
+      var dist = camera.position.distanceTo(mesh.position);
+      el.style.opacity = clamp(1 - dist/55, 0.18, 1);
+    });
+  }
+
+  window.addEventListener('resize', function(){
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  applyCamera();
+  animate();
+
+  clearTimeout(bootTimer);
+  clearTimeout(slowNoticeTimer);
+  hideBoot();
+
+  } catch(sceneErr){
+    clearTimeout(bootTimer);
+    clearTimeout(slowNoticeTimer);
+    handleSceneFailure(sceneErr);
+  }
+
+  /* ============ SPEECH SYNTHESIS ============ */
+  var synth = window.speechSynthesis;
+  var chosenVoice = null;
+  var voiceSelect = document.getElementById('voice-select');
+  var FEMALE_HINTS = ['female','samantha','victoria','karen','moira','tessa','fiona','serena','susan','zira','aria','google us english','google uk english female','allison','ava','kate','amelie'];
+
+  function pickBestVoice(voices){
+    if (!voices.length) return null;
+    for (var i=0;i<FEMALE_HINTS.length;i++){
+      var hint = FEMALE_HINTS[i];
+      var found = voices.find(function(v){ return v.name.toLowerCase().indexOf(hint) !== -1; });
+      if (found) return found;
+    }
+    var en = voices.find(function(v){ return v.lang && v.lang.indexOf('en') === 0; });
+    return en || voices[0];
+  }
+
+  function populateVoices(){
+    var voices = synth.getVoices();
+    if (!voices.length) return;
+    voiceSelect.innerHTML = '';
+    voices.forEach(function(v, i){
+      var opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = v.name + ' (' + v.lang + ')';
+      voiceSelect.appendChild(opt);
+    });
+    chosenVoice = pickBestVoice(voices);
+    var idx = voices.indexOf(chosenVoice);
+    if (idx >= 0) voiceSelect.value = idx;
+  }
+  voiceSelect.addEventListener('change', function(){
+    var voices = synth.getVoices();
+    chosenVoice = voices[parseInt(voiceSelect.value,10)] || null;
+  });
+  if (synth){
+    populateVoices();
+    synth.onvoiceschanged = populateVoices;
+  }
+
+  function speak(text, onEnd){
+    if (!synth) { if (onEnd) onEnd(); return; }
+    synth.cancel();
+    var utter = new SpeechSynthesisUtterance(text);
+    if (chosenVoice) utter.voice = chosenVoice;
+    utter.pitch = 1.12;
+    utter.rate = 1.0;
+    utter.onstart = function(){ setState('speaking'); };
+    utter.onend = function(){ setState('idle'); if (onEnd) onEnd(); };
+    utter.onerror = function(){ setState('idle'); if (onEnd) onEnd(); };
+    synth.speak(utter);
+  }
+
+  /* ============ SPEECH RECOGNITION ============ */
+  var SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognition = null;
+  var micBtn = document.getElementById('mic-btn');
+  if (SpeechRecognitionCtor){
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = function(){ micBtn.classList.add('active'); setState('listening'); };
+    recognition.onend = function(){ micBtn.classList.remove('active'); if (aiState==='listening') setState('idle'); };
+    recognition.onerror = function(){ micBtn.classList.remove('active'); setState('idle'); };
+    recognition.onresult = function(e){
+      var transcript = e.results[0][0].transcript;
+      document.getElementById('text-input').value = transcript;
+      sendMessage(transcript);
+    };
+    micBtn.addEventListener('click', function(){
+      if (micBtn.classList.contains('active')){ recognition.stop(); return; }
+      synth && synth.cancel();
+      try{ recognition.start(); }catch(err){}
+    });
+  } else {
+    micBtn.style.display = 'none';
+    document.getElementById('mic-unsupported').style.display = 'block';
+  }
+
+  /* ============ CHAT CONSOLE ============ */
+  var consoleEl = document.getElementById('console');
+  var launcher = document.getElementById('chat-launcher');
+  var messagesEl = document.getElementById('messages');
+  var input = document.getElementById('text-input');
+  var history = [];
+
+  function toggleConsole(open){
+    consoleEl.classList.toggle('open', open);
+    launcher.classList.toggle('hidden', open);
+    document.getElementById('core-hint').style.display = open ? 'none' : 'block';
+  }
+  launcher.addEventListener('click', function(){ toggleConsole(true); });
+  document.getElementById('console-close').addEventListener('click', function(){ toggleConsole(false); });
+
+  document.getElementById('settings-btn').addEventListener('click', function(){
+    document.getElementById('settings-panel').classList.toggle('open');
+  });
+
+  function addMessage(role, text){
+    var el = document.createElement('div');
+    el.className = 'msg ' + role;
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  async function sendMessage(text){
+    text = (text||'').trim();
+    if (!text) return;
+    input.value = '';
+    addMessage('user', text);
+    history.push({role:'user', content:text});
+    setState('thinking');
+
+    try{
+      var response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: "You are ARIA, a warm, capable voice assistant living inside a glowing galaxy console. The user is talking to you out loud and your reply will be read aloud by speech synthesis, so keep responses conversational and concise — normally two to four sentences — unless the person clearly asks for more detail. No markdown, no lists, no headers, just natural spoken language.",
+          messages: history
+        })
+      });
+      var data = await response.json();
+      var textBlocks = (data.content || []).filter(function(b){ return b.type === 'text'; }).map(function(b){ return b.text; });
+      var reply = textBlocks.join('\n').trim() || "I didn't quite catch that.";
+      addMessage('assistant', reply);
+      history.push({role:'assistant', content:reply});
+      speak(reply);
+    } catch(err){
+      addMessage('error', 'Connection lost. Try again in a moment.');
+      setState('idle');
+    }
+  }
+
+  document.getElementById('send-btn').addEventListener('click', function(){ sendMessage(input.value); });
+  input.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') sendMessage(input.value);
+  });
+
+})();
+</script>
+</body>
+</html>
